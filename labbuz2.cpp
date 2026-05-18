@@ -35,7 +35,6 @@ public:
     }
 };
 
-// ПРОСТАЯ ФУНКЦИЯ УМНОЖЕНИЯ
 void multiplyNaive(Matrix& C, const Matrix& A, const Matrix& B) {
     C.fillZero();
     for (int i = 0; i < N; ++i) {
@@ -48,7 +47,6 @@ void multiplyNaive(Matrix& C, const Matrix& A, const Matrix& B) {
     }
 }
 
-// ОПТИМИЗИРОВАННОЕ УМНОЖЕНИЕ
 void multiplyOptimized(Matrix& C, const Matrix& A, const Matrix& B) {
     C.fillZero();
     const int BLOCK = 64;
@@ -76,7 +74,6 @@ void multiplyOptimized(Matrix& C, const Matrix& A, const Matrix& B) {
     }
 }
 
-// ФУНКЦИЯ ИЗМЕРЕНИЯ ВРЕМЕНИ
 double measureTime(void (*func)(Matrix&, const Matrix&, const Matrix&),
     Matrix& C, const Matrix& A, const Matrix& B, const string& name) {
     cout << "Bыполняется: " << name << "... " << flush;
@@ -97,7 +94,6 @@ double measureTime(void (*func)(Matrix&, const Matrix&, const Matrix&),
     return mflops;
 }
 
-// ПРОВЕРКА КОРРЕКТНОСТИ
 bool checkResult(const Matrix& C1, const Matrix& C2) {
     float maxDiff = 0;
     int errors = 0;
@@ -138,11 +134,9 @@ int main() {
     cout << "[2] Запуск тестов производительности:" << endl;
     cout << "----------------------------------------" << endl;
 
-    // Замеряем производительность
     double mflops1 = measureTime(multiplyNaive, C_naive, A, B, "Классический алгоритм");
     double mflops2 = measureTime(multiplyOptimized, C_opt, A, B, "Оптимизированный алгоритм (блочный)");
 
-    // Результаты
     cout << "\n========================================" << endl;
     cout << "           РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ" << endl;
     cout << "========================================" << endl;
@@ -152,12 +146,10 @@ int main() {
     cout << " УСКОРЕНИЕ:                 x" << fixed << setprecision(2) << (mflops2 / mflops1) << endl;
     cout << "========================================" << endl;
 
-    // Проверка корректности
     cout << "\n[3] ПРОВЕРКА КОРРЕКТНОСТИ:" << endl;
     cout << "----------------------------------------" << endl;
     checkResult(C_opt, C_naive);
 
-    // Информация об оптимизациях
     cout << "\n========================================" << endl;
     cout << "        ПРИМЕНЁННЫЕ ОПТИМИЗАЦИИ" << endl;
     cout << "========================================" << endl;
@@ -169,7 +161,6 @@ int main() {
 
     cout << "\nПрограмма успешно завершена!" << endl;
 
-    // Не даём консоли закрыться сразу
     cout << "\nНажмите Enter для выхода...";
     cin.get();
 
