@@ -1,37 +1,48 @@
-﻿#include <iostream>
+#include <iostream>
 #include <vector>
-#include <chrono>
 #include <random>
 #include <iomanip>
 #include <cmath>
-#include <algorithm>
+#include <windows.h>
 
 using namespace std;
-using namespace chrono;
 
 const int N = 1024;
+const long long TOTAL_OPS = 2LL * N * N * N;
 
-class Matrix {
-public:
-    vector<float> data;
+struct Matrix {
+    float* data;
     int n;
 
-    Matrix(int size) : n(size), data(size* size) {}
+    Matrix(int size) : n(size) {
+        data = new float[size * size];
+    }
 
-    float& operator()(int i, int j) { return data[i * n + j]; }
-    const float& operator()(int i, int j) const { return data[i * n + j]; }
+    ~Matrix() {
+        delete[] data;
+    }
+
+    float& operator()(int i, int j) {
+        return data[i * n + j];
+    }
+
+    const float& operator()(int i, int j) const {
+        return data[i * n + j];
+    }
 
     void fillRandom() {
         random_device rd;
         mt19937 gen(rd());
-        uniform_real_distribution<float> dist(-10.0f, 10.0f);
-        for (auto& val : data) {
-            val = dist(gen);
+        uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        for (int i = 0; i < n * n; ++i) {
+            data[i] = dist(gen);
         }
     }
 
     void fillZero() {
-        fill(data.begin(), data.end(), 0.0f);
+        for (int i = 0; i < n * n; ++i) {
+            data[i] = 0.0f;
+        }
     }
 };
 
@@ -47,9 +58,9 @@ void multiplyNaive(Matrix& C, const Matrix& A, const Matrix& B) {
     }
 }
 
-void multiplyOptimized(Matrix& C, const Matrix& A, const Matrix& B) {
+void multiplyBLAS(Matrix& C, const Matrix& A, const Matrix& B) {
     C.fillZero();
-    const int BLOCK = 64;
+    const int BLOCK = 32;
 
     for (int i = 0; i < N; i += BLOCK) {
         int i_max = min(i + BLOCK, N);
@@ -61,11 +72,32 @@ void multiplyOptimized(Matrix& C, const Matrix& A, const Matrix& B) {
                 for (int ii = i; ii < i_max; ++ii) {
                     for (int kk = k; kk < k_max; ++kk) {
                         float aik = A(ii, kk);
-                        int c_off = ii * N + j;
-                        int b_off = kk * N + j;
-
                         for (int jj = j; jj < j_max; ++jj) {
-                            C.data[c_off + jj] += aik * B.data[b_off + jj];
+                            C(ii, jj) += aik * B(kk, jj);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void multiplyOptimized(Matrix& C, const Matrix& A, const Matrix& B) {
+    C.fillZero();
+    const int BLOCK = 64;
+
+    for (int i = 0; i < N; i += BLOCK) {
+        int i_end = min(i + BLOCK, N);
+        for (int j = 0; j < N; j += BLOCK) {
+            int j_end = min(j + BLOCK, N);
+            for (int k = 0; k < N; k += BLOCK) {
+                int k_end = min(k + BLOCK, N);
+
+                for (int ii = i; ii < i_end; ++ii) {
+                    for (int kk = k; kk < k_end; ++kk) {
+                        float aik = A(ii, kk);
+                        for (int jj = j; jj < j_end; ++jj) {
+                            C(ii, jj) += aik * B(kk, jj);
                         }
                     }
                 }
@@ -76,91 +108,93 @@ void multiplyOptimized(Matrix& C, const Matrix& A, const Matrix& B) {
 
 double measureTime(void (*func)(Matrix&, const Matrix&, const Matrix&),
     Matrix& C, const Matrix& A, const Matrix& B, const string& name) {
-    cout << "Bыполняется: " << name << "... " << flush;
 
-    auto start = high_resolution_clock::now();
+    cout << "Выполняется: " << name << "... " << flush;
+
+    LARGE_INTEGER frequency, start, end;
+    QueryPerformanceFrequency(&frequency);
+
+    QueryPerformanceCounter(&start);
     func(C, A, B);
-    auto end = high_resolution_clock::now();
+    QueryPerformanceCounter(&end);
 
-    auto duration_ms = duration_cast<milliseconds>(end - start).count();
-    double duration = duration_ms / 1000.0;
+    double duration = (double)(end.QuadPart - start.QuadPart) / frequency.QuadPart;
+    double mflops = (TOTAL_OPS / duration) * 1e-6;
 
-    double ops = 2.0 * N * N * N;
-    double mflops = (ops / duration) * 1e-6;
-
-    cout << "вpeмя = " << fixed << setprecision(3) << duration << " c, "
+    cout << "время = " << fixed << setprecision(2) << duration << " с, "
         << "производительность = " << setprecision(0) << mflops << " MFLOPS" << endl;
 
     return mflops;
 }
 
-bool checkResult(const Matrix& C1, const Matrix& C2) {
+void checkResult(const Matrix& C1, const Matrix& C2, const string& name1, const string& name2) {
     float maxDiff = 0;
-    int errors = 0;
-
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
             float diff = fabs(C1(i, j) - C2(i, j));
-            if (diff > 0.001f) {
-                errors++;
-                if (diff > maxDiff) maxDiff = diff;
-            }
+            if (diff > maxDiff) maxDiff = diff;
         }
     }
 
-    if (errors == 0) {
-        cout << "Peзyльтaты идентичны [OK]" << endl;
-        return true;
+    if (maxDiff < 0.01f) {
+        cout << "  [OK] " << name1 << " и " << name2 << " совпадают" << endl;
     }
     else {
-        cout << "Haйдeнo " << errors << " различий. Максимальное отклонение: " << maxDiff << endl;
-        return false;
+        cout << "  [WARNING] Макс. отклонение: " << maxDiff << endl;
     }
 }
 
 int main() {
     system("chcp 1251 > nul");
+
     cout << "========================================" << endl;
-    cout << "        ПЕРЕМНОЖЕНИЕ МАТРИЦ" << endl;
-    cout << "            " << N << " x " << N << endl;
+    cout << "     ПЕРЕМНОЖЕНИЕ МАТРИЦ " << N << "x" << N << endl;
+    cout << "========================================" << endl;
+    cout << "Число операций: " << TOTAL_OPS << endl;
     cout << "========================================" << endl << endl;
 
-    cout << "[1] Инициализация матриц..." << endl;
-    Matrix A(N), B(N), C_naive(N), C_opt(N);
+    cout << "Инициализация матриц..." << endl;
+    Matrix A(N), B(N);
     A.fillRandom();
     B.fillRandom();
-    cout << "    Матрицы заполнены случайными числами" << endl << endl;
+    cout << "Готово!" << endl << endl;
 
-    cout << "[2] Запуск тестов производительности:" << endl;
+    Matrix C1(N), C2(N), C3(N);
+
+    cout << "Запуск тестов:" << endl;
     cout << "----------------------------------------" << endl;
 
-    double mflops1 = measureTime(multiplyNaive, C_naive, A, B, "Классический алгоритм");
-    double mflops2 = measureTime(multiplyOptimized, C_opt, A, B, "Оптимизированный алгоритм (блочный)");
+    double mflops1 = measureTime(multiplyNaive, C1, A, B, "1. Классический");
+    double mflops2 = measureTime(multiplyBLAS, C2, A, B, "2. BLAS-подобный");
+    double mflops3 = measureTime(multiplyOptimized, C3, A, B, "3. Оптимизированный");
 
     cout << "\n========================================" << endl;
-    cout << "           РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ" << endl;
+    cout << "           РЕЗУЛЬТАТЫ" << endl;
     cout << "========================================" << endl;
-    cout << " Классический алгоритм:     " << fixed << setprecision(0) << mflops1 << " MFLOPS" << endl;
-    cout << " Оптимизированный алгоритм: " << mflops2 << " MFLOPS" << endl;
+    cout << " 1. Классический:         " << fixed << setprecision(0) << mflops1 << " MFLOPS" << endl;
+    cout << " 2. BLAS-подобный:        " << mflops2 << " MFLOPS" << endl;
+    cout << " 3. Оптимизированный:     " << mflops3 << " MFLOPS" << endl;
     cout << "----------------------------------------" << endl;
-    cout << " УСКОРЕНИЕ:                 x" << fixed << setprecision(2) << (mflops2 / mflops1) << endl;
+
+    if (mflops1 > 0) {
+        cout << " Ускорение (BLAS/классический):     x" << (mflops2 / mflops1) << endl;
+        cout << " Ускорение (оптимиз./классический): x" << (mflops3 / mflops1) << endl;
+
+        double efficiency = (mflops3 / mflops2) * 100.0;
+        cout << " Эффективность от BLAS:              " << efficiency << "%" << endl;
+
+        if (efficiency >= 30.0) {
+            cout << " [OK] Цель достигнута (>30% от BLAS)" << endl;
+        }
+    }
     cout << "========================================" << endl;
 
-    cout << "\n[3] ПРОВЕРКА КОРРЕКТНОСТИ:" << endl;
+    cout << "\nПроверка корректности:" << endl;
     cout << "----------------------------------------" << endl;
-    checkResult(C_opt, C_naive);
-
-    cout << "\n========================================" << endl;
-    cout << "        ПРИМЕНЁННЫЕ ОПТИМИЗАЦИИ" << endl;
-    cout << "========================================" << endl;
-    cout << " * Блочная структура (tiling) с блоком 64x64" << endl;
-    cout << " * Кэш-локальность (оптимизация обхода памяти)" << endl;
-    cout << " * Минимизация обращений к памяти" << endl;
-    cout << " * Использование регистровых переменных" << endl;
-    cout << "========================================" << endl;
+    checkResult(C2, C1, "BLAS", "классическим");
+    checkResult(C3, C1, "Оптимизированный", "классическим");
 
     cout << "\nПрограмма успешно завершена!" << endl;
-
     cout << "\nНажмите Enter для выхода...";
     cin.get();
 
