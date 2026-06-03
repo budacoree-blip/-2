@@ -46,6 +46,7 @@ struct Matrix {
     }
 };
 
+// ВАРИАНТ 1: КЛАССИЧЕСКИЙ АЛГОРИТМ
 void multiplyNaive(Matrix& C, const Matrix& A, const Matrix& B) {
     C.fillZero();
     for (int i = 0; i < N; ++i) {
@@ -58,29 +59,12 @@ void multiplyNaive(Matrix& C, const Matrix& A, const Matrix& B) {
     }
 }
 
+// ВАРИАНТ 2: BLAS 
 void multiplyBLAS(Matrix& C, const Matrix& A, const Matrix& B) {
-    C.fillZero();
-    const int BLOCK = 32;
-
-    for (int i = 0; i < N; i += BLOCK) {
-        int i_max = min(i + BLOCK, N);
-        for (int j = 0; j < N; j += BLOCK) {
-            int j_max = min(j + BLOCK, N);
-            for (int k = 0; k < N; k += BLOCK) {
-                int k_max = min(k + BLOCK, N);
-
-                for (int ii = i; ii < i_max; ++ii) {
-                    for (int kk = k; kk < k_max; ++kk) {
-                        float aik = A(ii, kk);
-                        for (int jj = j; jj < j_max; ++jj) {
-                            C(ii, jj) += aik * B(kk, jj);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, N, N, N, 1.0f, A.data, N, B.data, N, 0.0f, C.data, N);
 }
+
+// ВАРИАНТ 3: ОПТИМИЗИРОВАННЫЙ АЛГОРИТМ
 
 void multiplyOptimized(Matrix& C, const Matrix& A, const Matrix& B) {
     C.fillZero();
@@ -96,7 +80,14 @@ void multiplyOptimized(Matrix& C, const Matrix& A, const Matrix& B) {
                 for (int ii = i; ii < i_end; ++ii) {
                     for (int kk = k; kk < k_end; ++kk) {
                         float aik = A(ii, kk);
-                        for (int jj = j; jj < j_end; ++jj) {
+                        int jj = j;
+                        for (; jj + 3 < j_end; jj += 4) {
+                            C(ii, jj) += aik * B(kk, jj);
+                            C(ii, jj + 1) += aik * B(kk, jj + 1);
+                            C(ii, jj + 2) += aik * B(kk, jj + 2);
+                            C(ii, jj + 3) += aik * B(kk, jj + 3);
+                        }
+                        for (; jj < j_end; ++jj) {
                             C(ii, jj) += aik * B(kk, jj);
                         }
                     }
@@ -153,6 +144,12 @@ int main() {
     cout << "Число операций: " << TOTAL_OPS << endl;
     cout << "========================================" << endl << endl;
 
+    cout << "Выполняются 3 варианта перемножения:" << endl;
+    cout << "  1. Классический алгоритм (тройной цикл)" << endl;
+    cout << "  2. BLAS - ОДНА СТРОЧКА (cblas_sgemm)" << endl;
+    cout << "  3. Оптимизированный алгоритм (блочный + размотка)" << endl;
+    cout << endl;
+
     cout << "Инициализация матриц..." << endl;
     Matrix A(N), B(N);
     A.fillRandom();
@@ -165,15 +162,15 @@ int main() {
     cout << "----------------------------------------" << endl;
 
     double mflops1 = measureTime(multiplyNaive, C1, A, B, "1. Классический");
-    double mflops2 = measureTime(multiplyBLAS, C2, A, B, "2. BLAS-подобный");
+    double mflops2 = measureTime(multiplyBLAS, C2, A, B, "2. BLAS (ОДНА СТРОЧКА)");
     double mflops3 = measureTime(multiplyOptimized, C3, A, B, "3. Оптимизированный");
 
     cout << "\n========================================" << endl;
     cout << "           РЕЗУЛЬТАТЫ" << endl;
     cout << "========================================" << endl;
-    cout << " 1. Классический:         " << fixed << setprecision(0) << mflops1 << " MFLOPS" << endl;
-    cout << " 2. BLAS-подобный:        " << mflops2 << " MFLOPS" << endl;
-    cout << " 3. Оптимизированный:     " << mflops3 << " MFLOPS" << endl;
+    cout << " 1. Классический:          " << fixed << setprecision(0) << mflops1 << " MFLOPS" << endl;
+    cout << " 2. BLAS (одна строка):    " << mflops2 << " MFLOPS" << endl;
+    cout << " 3. Оптимизированный:      " << mflops3 << " MFLOPS" << endl;
     cout << "----------------------------------------" << endl;
 
     if (mflops1 > 0) {
@@ -181,7 +178,7 @@ int main() {
         cout << " Ускорение (оптимиз./классический): x" << (mflops3 / mflops1) << endl;
 
         double efficiency = (mflops3 / mflops2) * 100.0;
-        cout << " Эффективность от BLAS:              " << efficiency << "%" << endl;
+        cout << " Эффективность оптимиз. от BLAS:     " << efficiency << "%" << endl;
 
         if (efficiency >= 30.0) {
             cout << " [OK] Цель достигнута (>30% от BLAS)" << endl;
@@ -193,6 +190,14 @@ int main() {
     cout << "----------------------------------------" << endl;
     checkResult(C2, C1, "BLAS", "классическим");
     checkResult(C3, C1, "Оптимизированный", "классическим");
+
+    cout << "\n========================================" << endl;
+    cout << "     ВАРИАНТ 2: BLAS " << endl;
+    cout << "========================================" << endl;
+    cout << "Код функции multiplyBLAS:" << endl;
+    cout << "  cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, " << endl;
+    cout << "              N, N, N, 1.0f, A.data, N, B.data, N, 0.0f, C.data, N);" << endl;
+    cout << "========================================" << endl;
 
     cout << "\nПрограмма успешно завершена!" << endl;
     cout << "\nНажмите Enter для выхода...";
